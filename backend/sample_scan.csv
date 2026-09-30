@@ -1,0 +1,16 @@
+Asset,CVSS_Score,Exploit_Available,Business_Criticality,Asset_Value_INR,Mitigation_Cost_INR,Control_Efficacy,Remediation_Delay
+Core Banking DB Cluster,9.8,1,Tier-1,25000000,450000,0.85,0
+UPI Payment Switch API,9.4,1,Tier-1,18000000,320000,0.80,0
+Customer NetBanking Portal,8.8,1,Tier-1,12000000,240000,0.75,0
+Corporate SWIFT Gateway,9.1,1,Tier-1,30000000,600000,0.90,0
+Card Tokenization Vault,8.5,1,Tier-1,15000000,280000,0.80,0
+Active Directory Domain Controller,8.9,1,Tier-1,9000000,180000,0.70,0
+Employee GlobalProtect VPN,8.1,1,Tier-2,4500000,120000,0.65,0
+Loan Origination Web Server,7.4,1,Tier-2,5500000,110000,0.70,0
+HRMS & Payroll Portal,6.8,0,Tier-2,3500000,75000,0.60,0
+Email Exchange Server,7.2,1,Tier-2,4000000,95000,0.65,0
+Customer Mobile App API Gateway,7.9,1,Tier-2,7000000,140000,0.75,0
+Branch Office Router Fleet,6.1,0,Tier-2,2800000,60000,0.55,0
+Internal Jira & Confluence,5.3,0,Tier-3,1500000,45000,0.50,0
+Staging Kubernetes Cluster,4.8,0,Tier-3,1200000,30000,0.50,0
+Developer Sandbox Environment,3.5,0,Tier-3,600000,15000,0.40,0

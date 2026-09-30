@@ -1,0 +1,7 @@
+# Editor-specific settings (personal, not project config)
+.vscode/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+.venv/

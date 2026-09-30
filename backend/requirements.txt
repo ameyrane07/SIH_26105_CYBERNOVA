@@ -1,0 +1,12 @@
+fastapi>=0.110.0
+uvicorn>=0.28.0
+pydantic>=2.6.0
+pandas>=2.2.0
+numpy>=1.26.0
+ortools>=9.9.3963
+sqlalchemy>=2.0.28
+python-multipart>=0.0.9
+google-genai
+requests
+python-dotenv>=1.0.0
+openpyxl>=3.1.0
