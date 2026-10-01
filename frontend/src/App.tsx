@@ -25,7 +25,11 @@ import {
   FileSpreadsheet, 
   AlertOctagon, 
   CheckCircle2, 
-  FileWarning 
+  FileWarning,
+  Network,
+  ArrowRight,
+  Lock,
+  Cpu
 } from 'lucide-react';
 import { 
   AreaChart, 
@@ -81,6 +85,36 @@ interface HistoryPoint {
   compliance_score: number;
 }
 
+interface TopologyNode {
+  id: string;
+  name: string;
+  tier: string;
+  criticality: number;
+  ale: number;
+  cvss: number;
+  vulnerability: string;
+  is_tier1: boolean;
+  is_funded: boolean;
+  blast_radius_count: number;
+  blast_radius_ale: number;
+  can_pivot_to_tier1: boolean;
+}
+
+interface TopologyEdge {
+  source: string;
+  target: string;
+  protocol: string;
+  is_critical_path: boolean;
+}
+
+interface TopologyData {
+  nodes: TopologyNode[];
+  edges: TopologyEdge[];
+  total_nodes: number;
+  total_edges: number;
+  critical_chokepoints: string[];
+}
+
 interface ApiResponse {
   spent: number;
   saved: number;
@@ -95,6 +129,7 @@ interface ApiResponse {
     readiness_score: number;
     violations: Array<{ asset: string; clause: string; framework: string }>;
   };
+  topology?: TopologyData;
   curve?: CurvePoint[];
 }
 
@@ -147,7 +182,7 @@ export default function App() {
   const [historyData, setHistoryData] = useState<HistoryPoint[]>([]);
 
   const [selectedAsset, setSelectedAsset] = useState<AllocationItem | null>(null);
-  const [activePage, setActivePage] = useState<"overview" | "trends" | "query">("overview");
+  const [activePage, setActivePage] = useState<"overview" | "trends" | "query" | "topology">("overview");
 
   const [query, setQuery] = useState<string>("What is our highest financial cyber risk?");
   const [queryResult, setQueryResult] = useState<string>("");
@@ -368,11 +403,16 @@ export default function App() {
   const delayPercent = Math.min(100, Math.max(0, (delayDays / 90) * 100));
   const edrPercent = Math.min(100, Math.max(0, ((edrRate - 40) / (100 - 40)) * 100));
 
+  const topologyNodes = data?.topology?.nodes || [];
+  const edgeDmzNodes = topologyNodes.filter(n => n.tier === "Edge / DMZ");
+  const appNodes = topologyNodes.filter(n => n.tier === "Application");
+  const dataCoreNodes = topologyNodes.filter(n => n.tier === "Data / Core");
+  const iamNodes = topologyNodes.filter(n => n.tier === "Management / IAM");
+
   return (
     <div className="flex min-h-screen bg-[#070b12] text-slate-100 font-sans relative">
       <aside className="w-80 border-r border-slate-800/80 bg-[#0c121e] p-6 flex flex-col justify-between overflow-y-auto max-h-screen">
         <div className="space-y-5">
-          {/* Brand Header */}
           <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
             <ShieldCheck className="text-emerald-400 shrink-0" size={32} />
             <h1 className="font-extrabold tracking-tight text-white text-lg leading-none">
@@ -380,7 +420,6 @@ export default function App() {
             </h1>
           </div>
 
-          {/* 1. Ingestion Mode Selector */}
           <div>
             <div className="flex justify-between items-center mb-1.5">
               <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
@@ -428,7 +467,6 @@ export default function App() {
             )}
           </div>
 
-          {/* 2. Slider Bar for Capital Budget */}
           <div>
             <div className="flex justify-between items-center mb-1.5">
               <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
@@ -452,7 +490,6 @@ export default function App() {
             />
           </div>
 
-          {/* 3. Slider Bar for Remediation Delay */}
           <div>
             <div className="flex justify-between items-center mb-1.5">
               <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
@@ -476,7 +513,6 @@ export default function App() {
             />
           </div>
 
-          {/* 4. DYNAMIC CONTROL POSTURE */}
           <div className="p-3 bg-slate-900/60 border border-slate-800 rounded-lg space-y-3">
             <div className="flex items-center gap-1.5 text-cyan-400 text-xs font-semibold uppercase tracking-wider">
               <Sliders size={14} />
@@ -523,7 +559,6 @@ export default function App() {
             </label>
           </div>
 
-          {/* 5. What-If & Scoring Options */}
           <div className="space-y-2 pt-2 border-t border-slate-800">
             <label className="flex items-start gap-2 cursor-pointer text-xs text-slate-300">
               <input 
@@ -678,6 +713,16 @@ export default function App() {
             <History size={14} /> Trends &amp; Compliance
           </button>
           <button
+            onClick={() => setActivePage("topology")}
+            className={`px-4 py-2 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
+              activePage === "topology"
+                ? "bg-emerald-500/15 border border-emerald-500/40 text-emerald-400"
+                : "bg-slate-900/60 border border-slate-800 text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Network size={14} /> Attack Topology
+          </button>
+          <button
             onClick={() => setActivePage("query")}
             className={`px-4 py-2 rounded-lg text-xs font-semibold transition flex items-center gap-2 cursor-pointer ${
               activePage === "query"
@@ -690,79 +735,432 @@ export default function App() {
         </nav>
 
         {activePage === "overview" && (
-        <section className="bg-[#0c121e] border border-slate-800/80 rounded-xl p-5 shadow-lg">
-          <div className="flex justify-between items-center mb-4">
-            <div>
-              <h3 className="font-bold text-white text-sm">Investment vs. Risk Reduction Curve</h3>
-              <p className="text-xs text-slate-400">Diminishing returns analysis (Gordon-Loeb theorem &amp; MILP frontier)</p>
+        <>
+          <section className="bg-[#0c121e] border border-slate-800/80 rounded-xl p-5 shadow-lg">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h3 className="font-bold text-white text-sm">Investment vs. Risk Reduction Curve</h3>
+                <p className="text-xs text-slate-400">Diminishing returns analysis (Gordon-Loeb theorem &amp; MILP frontier)</p>
+              </div>
+              {data?.curve && data.curve.length > 0 && (
+                <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                  10 Frontier Points Computed
+                </span>
+              )}
             </div>
-            {data?.curve && data.curve.length > 0 && (
-              <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                10 Frontier Points Computed
-              </span>
-            )}
-          </div>
 
-          <div className="w-full h-[280px]">
-            {data && data.curve && data.curve.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data.curve} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorSaved" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
-                    </linearGradient>
-                    <linearGradient id="colorResidual" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                  <XAxis 
-                    dataKey="budget" 
-                    tickFormatter={formatINR} 
-                    stroke="#64748b" 
-                    fontSize={11}
-                  />
-                  <YAxis 
-                    tickFormatter={formatINR} 
-                    stroke="#64748b" 
-                    fontSize={11}
-                  />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: "#0f172a", borderColor: "#334155", borderRadius: "8px", fontSize: "11px" }}
-                    formatter={(value: any) => [`₹${Number(value).toLocaleString()}`, ""]}
-                    labelFormatter={(label) => `Capital: ₹${Number(label).toLocaleString()}`}
-                  />
-                  <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "8px" }} />
-                  <Area 
-                    type="monotone" 
-                    dataKey="risk_reduced" 
-                    name="ALE Saved (Risk Mitigated)" 
-                    stroke="#10b981" 
-                    strokeWidth={2}
-                    fillOpacity={1} 
-                    fill="url(#colorSaved)" 
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey="residual_risk" 
-                    name="Residual Risk Exposure" 
-                    stroke="#f43f5e" 
-                    strokeWidth={2}
-                    fillOpacity={1} 
-                    fill="url(#colorResidual)" 
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+            <div className="w-full h-[280px]">
+              {data && data.curve && data.curve.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={data.curve} margin={{ top: 10, right: 20, left: 10, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorSaved" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0.0}/>
+                      </linearGradient>
+                      <linearGradient id="colorResidual" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <XAxis 
+                      dataKey="budget" 
+                      tickFormatter={formatINR} 
+                      stroke="#64748b" 
+                      fontSize={11}
+                    />
+                    <YAxis 
+                      tickFormatter={formatINR} 
+                      stroke="#64748b" 
+                      fontSize={11}
+                    />
+                    <Tooltip 
+                      contentStyle={{ backgroundColor: "#0f172a", borderColor: "#334155", borderRadius: "8px", fontSize: "11px" }}
+                      formatter={(value: any) => [`₹${Number(value).toLocaleString()}`, ""]}
+                      labelFormatter={(label) => `Capital: ₹${Number(label).toLocaleString()}`}
+                    />
+                    <Legend wrapperStyle={{ fontSize: "11px", paddingTop: "8px" }} />
+                    <Area 
+                      type="monotone" 
+                      dataKey="risk_reduced" 
+                      name="ALE Saved (Risk Mitigated)" 
+                      stroke="#10b981" 
+                      strokeWidth={2}
+                      fillOpacity={1} 
+                      fill="url(#colorSaved)" 
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="residual_risk" 
+                      name="Residual Risk Exposure" 
+                      stroke="#f43f5e" 
+                      strokeWidth={2}
+                      fillOpacity={1} 
+                      fill="url(#colorResidual)" 
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center border border-dashed border-slate-800 rounded-lg text-slate-500">
+                  <BarChart3 className="mb-2 opacity-40" size={28} />
+                  <p className="text-xs">Execute Risk Engine to plot the diminishing returns investment curve.</p>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="bg-[#0c121e] border border-slate-800/80 rounded-xl overflow-hidden shadow-lg">
+            <div className="p-4 border-b border-slate-800 flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-white text-sm">Optimal Remediation Allocations (MILP Knapsack Solution)</h3>
+                <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
+                  Click any row to inspect OpenFAIR loss decomposition
+                </span>
+              </div>
+              {data && (
+                <span className="text-xs text-slate-400">
+                  <span className="text-emerald-400 font-bold">{fundedAssets.length} Funded</span> / <span className="text-rose-400 font-bold">{deferredAssets.length} Deferred</span>
+                </span>
+              )}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-900/80 text-slate-400 font-semibold border-b border-slate-800">
+                  <tr>
+                    <th className="py-2.5 px-4">Asset</th>
+                    <th className="py-2.5 px-4">CVSS</th>
+                    <th className="py-2.5 px-4">Asset Value</th>
+                    <th className="py-2.5 px-4">Mitigation Cost</th>
+                    <th className="py-2.5 px-4">ALE Saved</th>
+                    <th className="py-2.5 px-4">ROSI</th>
+                    <th className="py-2.5 px-4">Status</th>
+                    <th className="py-2.5 px-4 text-center">OpenFAIR Breakdown</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {data ? (
+                    <>
+                      {fundedAssets.map((row, idx) => (
+                        <tr 
+                          key={`funded-${idx}`} 
+                          className="hover:bg-slate-800/40 transition bg-emerald-950/5 cursor-pointer"
+                          onClick={() => setSelectedAsset(row)}
+                        >
+                          <td className="py-2.5 px-4 font-medium text-white">{row.Asset}</td>
+                          <td className="py-2.5 px-4 font-mono">{row.CVSS_Score}</td>
+                          <td className="py-2.5 px-4 font-mono">₹{row.Asset_Value_INR.toLocaleString()}</td>
+                          <td className="py-2.5 px-4 font-mono text-slate-200">₹{row.Mitigation_Cost_INR.toLocaleString()}</td>
+                          <td className="py-2.5 px-4 font-mono text-emerald-400 font-semibold">₹{row.ALE_Saved.toLocaleString()}</td>
+                          <td className="py-2.5 px-4 font-mono text-emerald-300">{row.ROSI_Pct.toFixed(1)}%</td>
+                          <td className="py-2.5 px-4">
+                            <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full font-semibold text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 whitespace-nowrap leading-none">
+                              FUNDED
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 text-center">
+                            <button className="p-1 hover:bg-slate-700/60 text-cyan-400 rounded transition" title="Inspect Loss">
+                              <Info size={15} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+
+                      {deferredAssets.length > 0 && (
+                        <tr className="bg-amber-500/10 border-y-2 border-amber-500/30">
+                          <td colSpan={8} className="py-2.5 px-4 text-amber-300 font-semibold text-[11px]">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <AlertTriangle size={14} className="text-amber-400" />
+                                <span>
+                                  CAPITAL EXHAUSTION CUTOFF: ₹{data.spent.toLocaleString()} allocated of ₹{budget.toLocaleString()} budget (₹{unspentCapital.toLocaleString()} unallocated remainder)
+                                </span>
+                              </div>
+                              {firstDeferred && (
+                                <span className="text-[10px] text-amber-400/90 font-mono">
+                                  Next Candidate requires ₹{firstDeferred.Mitigation_Cost_INR.toLocaleString()} (Deferred)
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+
+                      {deferredAssets.map((row, idx) => (
+                        <tr 
+                          key={`deferred-${idx}`} 
+                          className="hover:bg-slate-800/40 transition opacity-80 cursor-pointer"
+                          onClick={() => setSelectedAsset(row)}
+                        >
+                          <td className="py-2.5 px-4 font-medium text-slate-300">{row.Asset}</td>
+                          <td className="py-2.5 px-4 font-mono text-slate-400">{row.CVSS_Score}</td>
+                          <td className="py-2.5 px-4 font-mono text-slate-400">₹{row.Asset_Value_INR.toLocaleString()}</td>
+                          <td className="py-2.5 px-4 font-mono text-slate-400">₹{row.Mitigation_Cost_INR.toLocaleString()}</td>
+                          <td className="py-2.5 px-4 font-mono text-slate-400">₹{row.ALE_Saved.toLocaleString()}</td>
+                          <td className="py-2.5 px-4 font-mono text-slate-400">{row.ROSI_Pct.toFixed(1)}%</td>
+                          <td className="py-2.5 px-4">
+                            <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full font-semibold text-[10px] bg-rose-500/15 text-rose-400 border border-rose-500/40 whitespace-nowrap leading-none">
+                              DEFERRED
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-4 text-center">
+                            <button className="p-1 hover:bg-slate-700/60 text-slate-400 hover:text-cyan-400 rounded transition" title="Inspect Loss">
+                              <Info size={15} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </>
+                  ) : (
+                    <tr>
+                      <td colSpan={8} className="text-center py-6 text-slate-500">
+                        Upload asset dataset and run engine to view allocations.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+        )}
+
+        {/* ATTACK TOPOLOGY CANVAS */}
+        {activePage === "topology" && (
+        <div className="space-y-6">
+          <section className="bg-[#0c121e] border border-slate-800/80 rounded-xl p-5 shadow-lg space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-cyan-500/10 border border-cyan-500/30 text-cyan-400">
+                  <Network size={20} />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base tracking-tight">Enterprise Attack Topology &amp; Blast Radius Canvas</h3>
+                  <p className="text-xs text-slate-400">Lateral movement graph traversal, crown-jewel pivot paths, and transitive exposure propagation</p>
+                </div>
+              </div>
+
+              {data?.topology && (
+                <div className="flex items-center gap-3">
+                  <div className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-right">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">Network Nodes</span>
+                    <span className="font-mono text-sm font-bold text-cyan-400">{data.topology.total_nodes}</span>
+                  </div>
+                  <div className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-right">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">Attack Edges</span>
+                    <span className="font-mono text-sm font-bold text-sky-400">{data.topology.total_edges}</span>
+                  </div>
+                  <div className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-right">
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold block">Chokepoint Deficits</span>
+                    <span className="font-mono text-sm font-bold text-rose-400">{data.topology.critical_chokepoints.length}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {topologyNodes.length > 0 ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                  {/* TIER 1: EDGE / DMZ */}
+                  <div className="bg-slate-950/60 border border-slate-800/90 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <span className="text-xs font-bold text-sky-400 flex items-center gap-1.5 uppercase tracking-wider">
+                        <UploadCloud size={14} /> Edge / Ingress
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded">
+                        {edgeDmzNodes.length} Nodes
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {edgeDmzNodes.map((node) => (
+                        <div 
+                          key={node.id}
+                          onClick={() => {
+                            const found = data?.allocations.find(a => a.Asset === node.name);
+                            if (found) setSelectedAsset(found);
+                          }}
+                          className={`p-3 rounded-lg border transition cursor-pointer ${
+                            node.is_funded 
+                              ? "bg-slate-900/80 border-emerald-500/40 hover:border-emerald-400" 
+                              : "bg-slate-900/80 border-rose-500/40 hover:border-rose-400"
+                          }`}
+                        >
+                          <div className="flex justify-between items-start mb-1">
+                            <span className="text-xs font-semibold text-white truncate max-w-[140px]">{node.name}</span>
+                            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-bold ${
+                              node.is_funded ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
+                            }`}>
+                              CVSS {node.cvss}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono mt-2">
+                            <span>Blast: {node.blast_radius_count} assets</span>
+                            <span className="text-rose-400 font-bold">₹{(node.blast_radius_ale / 100000).toFixed(1)}L</span>
+                          </div>
+                          {node.can_pivot_to_tier1 && (
+                            <span className="mt-1.5 inline-flex items-center gap-1 text-[9px] text-amber-300 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded">
+                              <AlertTriangle size={10} /> Pivots to Tier-1
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* TIER 2: APPLICATION SERVICES */}
+                  <div className="bg-slate-950/60 border border-slate-800/90 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <span className="text-xs font-bold text-cyan-400 flex items-center gap-1.5 uppercase tracking-wider">
+                        <Cpu size={14} /> Application Tier
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded">
+                        {appNodes.length} Nodes
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {appNodes.map((node) => (
+                        <div 
+                          key={node.id}
+                          onClick={() => {
+                            const found = data?.allocations.find(a => a.Asset === node.name);
+                            if (found) setSelectedAsset(found);
+                          }}
+                          className={`p-3 rounded-lg border transition cursor-pointer ${
+                            node.is_funded 
+                              ? "bg-slate-900/80 border-emerald-500/40 hover:border-emerald-400" 
+                              : "bg-slate-900/80 border-rose-500/40 hover:border-rose-400"
+                          }`}
+                        >
+                          <div className="flex justify-between items-start mb-1">
+                            <span className="text-xs font-semibold text-white truncate max-w-[140px]">{node.name}</span>
+                            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-bold ${
+                              node.is_funded ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"
+                            }`}>
+                              CVSS {node.cvss}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono mt-2">
+                            <span>Blast: {node.blast_radius_count} assets</span>
+                            <span className="text-rose-400 font-bold">₹{(node.blast_radius_ale / 100000).toFixed(1)}L</span>
+                          </div>
+                          {node.can_pivot_to_tier1 && (
+                            <span className="mt-1.5 inline-flex items-center gap-1 text-[9px] text-amber-300 bg-amber-500/10 border border-amber-500/30 px-1.5 py-0.5 rounded">
+                              <AlertTriangle size={10} /> Downstream Pivot
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* TIER 3: DATA & CORE BANKING */}
+                  <div className="bg-slate-950/60 border border-slate-800/90 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <span className="text-xs font-bold text-rose-400 flex items-center gap-1.5 uppercase tracking-wider">
+                        <Database size={14} /> Core Data / Vault
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded">
+                        {dataCoreNodes.length} Nodes
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {dataCoreNodes.map((node) => (
+                        <div 
+                          key={node.id}
+                          onClick={() => {
+                            const found = data?.allocations.find(a => a.Asset === node.name);
+                            if (found) setSelectedAsset(found);
+                          }}
+                          className={`p-3 rounded-lg border transition cursor-pointer ${
+                            node.is_funded 
+                              ? "bg-slate-900/80 border-emerald-500/40 hover:border-emerald-400" 
+                              : "bg-slate-900/80 border-rose-500/40 hover:border-rose-400 ring-1 ring-rose-500/30"
+                          }`}
+                        >
+                          <div className="flex justify-between items-start mb-1">
+                            <span className="text-xs font-semibold text-white truncate max-w-[140px]">{node.name}</span>
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded font-bold bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                              TIER-1
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono mt-2">
+                            <span>ALE: ₹{(node.ale / 100000).toFixed(1)}L</span>
+                            <span className={node.is_funded ? "text-emerald-400" : "text-rose-400 font-bold"}>
+                              {node.is_funded ? "DEFENDED" : "EXPOSED"}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* TIER 4: IAM & CONTROLLERS */}
+                  <div className="bg-slate-950/60 border border-slate-800/90 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
+                        <Lock size={14} /> IAM / Auth Hub
+                      </span>
+                      <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded">
+                        {iamNodes.length} Nodes
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {iamNodes.map((node) => (
+                        <div 
+                          key={node.id}
+                          onClick={() => {
+                            const found = data?.allocations.find(a => a.Asset === node.name);
+                            if (found) setSelectedAsset(found);
+                          }}
+                          className={`p-3 rounded-lg border transition cursor-pointer ${
+                            node.is_funded 
+                              ? "bg-slate-900/80 border-emerald-500/40 hover:border-emerald-400" 
+                              : "bg-slate-900/80 border-rose-500/40 hover:border-rose-400"
+                          }`}
+                        >
+                          <div className="flex justify-between items-start mb-1">
+                            <span className="text-xs font-semibold text-white truncate max-w-[140px]">{node.name}</span>
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded font-bold bg-emerald-500/10 text-emerald-400">
+                              PRIVILEGED
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center text-[10px] text-slate-400 font-mono mt-2">
+                            <span>Governs all tiers</span>
+                            <span className="text-cyan-400 font-bold">Kerberos/SSH</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 p-4 bg-slate-900/40 border border-slate-800 rounded-xl">
+                  <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                    <ArrowRight size={14} className="text-cyan-400" />
+                    Transitive Lateral Movement Chains Detected ({data?.topology?.edges.length || 0} Attack Vectors)
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                    {data?.topology?.edges.slice(0, 9).map((edge, idx) => (
+                      <div key={idx} className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800/80 flex items-center justify-between text-[11px] font-mono">
+                        <span className="text-slate-300 truncate max-w-[90px]">{edge.source}</span>
+                        <span className="text-cyan-400 flex items-center gap-1">
+                          <span className="text-[9px] text-slate-500">{edge.protocol}</span>
+                          <ArrowRight size={12} />
+                        </span>
+                        <span className="text-white truncate max-w-[90px] font-semibold">{edge.target}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             ) : (
-              <div className="h-full flex flex-col items-center justify-center border border-dashed border-slate-800 rounded-lg text-slate-500">
-                <BarChart3 className="mb-2 opacity-40" size={28} />
-                <p className="text-xs">Execute Risk Engine to plot the diminishing returns investment curve.</p>
+              <div className="h-64 flex flex-col items-center justify-center border border-dashed border-slate-800 rounded-lg text-slate-500">
+                <Network className="mb-2 opacity-40" size={32} />
+                <p className="text-xs">Upload dataset and run engine to generate the attack topology canvas.</p>
               </div>
             )}
-          </div>
-        </section>
+          </section>
+        </div>
         )}
 
         {activePage === "trends" && (
@@ -1012,123 +1410,9 @@ export default function App() {
           )}
         </section>
         )}
-
-        {activePage === "overview" && (
-        <section className="bg-[#0c121e] border border-slate-800/80 rounded-xl overflow-hidden shadow-lg">
-          <div className="p-4 border-b border-slate-800 flex justify-between items-center">
-            <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-white text-sm">Optimal Remediation Allocations (MILP Knapsack Solution)</h3>
-              <span className="text-[10px] text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">
-                Click any row to inspect OpenFAIR loss decomposition
-              </span>
-            </div>
-            {data && (
-              <span className="text-xs text-slate-400">
-                <span className="text-emerald-400 font-bold">{fundedAssets.length} Funded</span> / <span className="text-rose-400 font-bold">{deferredAssets.length} Deferred</span>
-              </span>
-            )}
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-900/80 text-slate-400 font-semibold border-b border-slate-800">
-                <tr>
-                  <th className="py-2.5 px-4">Asset</th>
-                  <th className="py-2.5 px-4">CVSS</th>
-                  <th className="py-2.5 px-4">Asset Value</th>
-                  <th className="py-2.5 px-4">Mitigation Cost</th>
-                  <th className="py-2.5 px-4">ALE Saved</th>
-                  <th className="py-2.5 px-4">ROSI</th>
-                  <th className="py-2.5 px-4">Status</th>
-                  <th className="py-2.5 px-4 text-center">OpenFAIR Breakdown</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {data ? (
-                  <>
-                    {fundedAssets.map((row, idx) => (
-                      <tr 
-                        key={`funded-${idx}`} 
-                        className="hover:bg-slate-800/40 transition bg-emerald-950/5 cursor-pointer"
-                        onClick={() => setSelectedAsset(row)}
-                      >
-                        <td className="py-2.5 px-4 font-medium text-white">{row.Asset}</td>
-                        <td className="py-2.5 px-4 font-mono">{row.CVSS_Score}</td>
-                        <td className="py-2.5 px-4 font-mono">₹{row.Asset_Value_INR.toLocaleString()}</td>
-                        <td className="py-2.5 px-4 font-mono text-slate-200">₹{row.Mitigation_Cost_INR.toLocaleString()}</td>
-                        <td className="py-2.5 px-4 font-mono text-emerald-400 font-semibold">₹{row.ALE_Saved.toLocaleString()}</td>
-                        <td className="py-2.5 px-4 font-mono text-emerald-300">{row.ROSI_Pct.toFixed(1)}%</td>
-                        <td className="py-2.5 px-4">
-                          <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full font-semibold text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 whitespace-nowrap leading-none">
-                            FUNDED
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-4 text-center">
-                          <button className="p-1 hover:bg-slate-700/60 text-cyan-400 rounded transition" title="Inspect Loss">
-                            <Info size={15} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-
-                    {deferredAssets.length > 0 && (
-                      <tr className="bg-amber-500/10 border-y-2 border-amber-500/30">
-                        <td colSpan={8} className="py-2.5 px-4 text-amber-300 font-semibold text-[11px]">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <AlertTriangle size={14} className="text-amber-400" />
-                              <span>
-                                CAPITAL EXHAUSTION CUTOFF: ₹{data.spent.toLocaleString()} allocated of ₹{budget.toLocaleString()} budget (₹{unspentCapital.toLocaleString()} unallocated remainder)
-                              </span>
-                            </div>
-                            {firstDeferred && (
-                              <span className="text-[10px] text-amber-400/90 font-mono">
-                                Next Candidate requires ₹{firstDeferred.Mitigation_Cost_INR.toLocaleString()} (Deferred)
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-
-                    {deferredAssets.map((row, idx) => (
-                      <tr 
-                        key={`deferred-${idx}`} 
-                        className="hover:bg-slate-800/40 transition opacity-80 cursor-pointer"
-                        onClick={() => setSelectedAsset(row)}
-                      >
-                        <td className="py-2.5 px-4 font-medium text-slate-300">{row.Asset}</td>
-                        <td className="py-2.5 px-4 font-mono text-slate-400">{row.CVSS_Score}</td>
-                        <td className="py-2.5 px-4 font-mono text-slate-400">₹{row.Asset_Value_INR.toLocaleString()}</td>
-                        <td className="py-2.5 px-4 font-mono text-slate-400">₹{row.Mitigation_Cost_INR.toLocaleString()}</td>
-                        <td className="py-2.5 px-4 font-mono text-slate-400">₹{row.ALE_Saved.toLocaleString()}</td>
-                        <td className="py-2.5 px-4 font-mono text-slate-400">{row.ROSI_Pct.toFixed(1)}%</td>
-                        <td className="py-2.5 px-4">
-                          <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full font-semibold text-[10px] bg-rose-500/15 text-rose-400 border border-rose-500/40 whitespace-nowrap leading-none">
-                            DEFERRED
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-4 text-center">
-                          <button className="p-1 hover:bg-slate-700/60 text-slate-400 hover:text-cyan-400 rounded transition" title="Inspect Loss">
-                            <Info size={15} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </>
-                ) : (
-                  <tr>
-                    <td colSpan={8} className="text-center py-6 text-slate-500">
-                      Upload asset dataset and run engine to view allocations.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-        )}
       </main>
 
+      {/* OpenFAIR Loss Decomposition Modal */}
       {selectedAsset && selectedAsset.loss_decomposition && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-[#0f172a] border border-slate-800 rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl">
