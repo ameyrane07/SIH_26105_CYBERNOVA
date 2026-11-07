@@ -3,29 +3,34 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 # -----------------------------------------------------------------
-# DATABASE CONNECTION
+# DATABASE CONFIGURATION
 # -----------------------------------------------------------------
-# Reads DATABASE_URL from the environment so the same code works
-# against a local PostgreSQL install, a Docker container, or a
-# free cloud-hosted Postgres (Neon / Supabase / Railway).
-#
-# Example values for DATABASE_URL:
-#   postgresql://user:password@localhost:5432/cybernova
-#   postgresql://user:password@ep-xxxx.neon.tech/cybernova
-#
-# Falls back to a local SQLite file if DATABASE_URL is not set,
-# so the app still runs out-of-the-box for local development or
-# quick testing without needing Postgres configured first.
+# Reads DATABASE_URL from environment (PostgreSQL / TimescaleDB).
+# Defaults to local SQLite file for standalone local development.
 # -----------------------------------------------------------------
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./cybernova.db")
 
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+# Ensure PostgreSQL connection string compatibility with modern SQLAlchemy
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(
+        DATABASE_URL, 
+        connect_args={"check_same_thread": False}
+    )
+else:
+    # TimescaleDB / PostgreSQL production engine configuration
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,      # Tests connection liveness before checkout
+        pool_size=10,            # Base connection pool
+        max_overflow=20          # Allows bursting for high-concurrency simulation runs
+    )
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
-
 
 def get_db():
     db = SessionLocal()
